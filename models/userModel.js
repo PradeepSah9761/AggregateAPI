@@ -1,20 +1,16 @@
 import mongoose from 'mongoose';
 
-const userSchema=await mongoose.Schema(
+const studentSchema=await mongoose.Schema(
 
 {
-
     name:{ type:String},
     age:{type:Number},
-    course:{type:String},
     email:{type:String},
-    password:{type:String},
-
-
-
-    
+    password:{type:String},  
+    gender:{type:String} 
 }
 
 );
 
-export const userModel= await mongoose.model("studentData",userSchema);
+const studentModel= await mongoose.model("studentData",studentSchema);
+export {studentModel};

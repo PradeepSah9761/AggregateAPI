@@ -1,16 +1,18 @@
 
 
-import { userModel } from "../models/userModel.js";
+import { studentModel } from "../models/userModel.js";
 import validate from 'validator';
 import bcrypt from 'bcryptjs';
-import { group } from "console";
+import { courseModel } from "../models/courseModel.js";
+import moment from 'moment-timezone';
+
 
 
 //User Registration 
 const userRegistration=async (req,res)=>
 {
-    const {name,age,course,email,password,confirmPassword}=req.body;
-    if(!name || !age || !course || !email || !password || !confirmPassword)
+    const {name,age,email,password,confirmPassword,gender}=req.body;
+    if(!name || !age  || !email || !password || !confirmPassword || !gender)
     {
        return res.status(401).json(
             {
@@ -27,7 +29,7 @@ if(!validate.isEmail(email))
     }
 )
 }
-    const userEmail=await userModel.findOne({email:email});
+    const userEmail=await studentModel.findOne({email:email});
     if(userEmail)
     {
        return res.status(401).json({
@@ -42,13 +44,14 @@ if(!validate.isEmail(email))
         })
     }
     const hashPassword=await bcrypt.hash(password,10);
-    const user=new userModel(
+    const user=new studentModel(
     {
         name:name,
         age:age,
-        course:course,
         email:email,
-        password:hashPassword
+        gender,
+        password:hashPassword,
+        createdAt:moment().utc().toISOString()
     }
 );
 
@@ -60,6 +63,30 @@ if(!validate.isEmail(email))
   )
 }
 
+
+//To Register Course Details
+
+const courseRegister= async(req,res)=>
+
+{
+
+    const {courseId,courseName,duration,studentId}=req.body;
+
+    if(!courseId || !courseName || !duration || !studentId )
+    {
+        res.send({status:"failed",message:"All Fields are required"})
+    }
+
+    const courseData=new courseModel(
+        {
+            courseId,courseName,duration,
+            studentId
+        }
+    );
+    await courseData.save();
+    res.send({message:"course Deatail register successfully"});
+
+}
 
 //To Login 
 const userLogin=async (req,res)=>
@@ -74,7 +101,7 @@ const userLogin=async (req,res)=>
     }
 
 
-    const user=await userModel.findOne({email:email});
+    const user=await studentModel.findOne({email:email});
     if(!user)
     {
         return res.status(401).json(
@@ -96,24 +123,24 @@ const userLogin=async (req,res)=>
     )
 }
 
-//To Count User By Course
+//To Count User By Gender
 const userCountByCourse=async (req,res)=>
 {
 
     try{
-        const courseStats = await userModel.aggregate([
+        const groupState = await studentModel.aggregate([
             {
                 $group: {
-                    _id: "$course", // Group by course field
-                    userCount: { $sum: 1 } // Count number of users
+                    _id: "$gender", // Group by gender field
+                    studentCount: { $sum: 1 } // Count number of student
                 }
             },
         ]);
 
         res.status(200).json(
             {
-                message:"User Count Per Course",
-                data:courseStats
+                message:"Student Count By Gender",
+                data:groupState
             }
         )
 
@@ -129,7 +156,7 @@ const getUserAboveAge = async (req, res) => {
     try {
         const { minAge } = req.query;
 
-        const result = await userModel.aggregate([
+        const result = await studentModel.aggregate([
             {
                 $match: {
                     age: { $gte: parseInt(minAge) }
@@ -151,14 +178,14 @@ const getUserAboveAge = async (req, res) => {
 const latestUsers= async (req,res)=>
 {
     const {userLimit}=req.query;
- const latestUser=await userModel.aggregate(
+ const latestUser=await studentModel.aggregate(
     [
         { $sort:{_id:-1}},
            { $limit:parseInt(userLimit)},
            {$project:{
             name:1,
             age:1,
-            course:1,
+            gender:1,
             _id:0
            }}
     ]
@@ -175,7 +202,7 @@ const getUserByAgeGroup= async (req,res)=>
 {
     try
     {
-        const result=await userModel.aggregate(
+        const result=await studentModel.aggregate(
             [
                 {$bucket:
                     {
@@ -210,6 +237,108 @@ const getUserByAgeGroup= async (req,res)=>
     }
 }
 
+//Use Of Lookup to join student data and course data
+
+const studentWithCourseDetail= async (req,res)=>
+{
+   const studentDetailWithCourse= await studentModel.aggregate(
+        [
+            {$lookup:{
+                from:"coursedatas",
+                localField:"_id",
+                foreignField:"studentId",
+                as:"courseDetail"
+            }}
+        ]
+    );
+    // console.log(studentWithCourseDetail());
+    res.send(studentDetailWithCourse);
+
+}
+
+//Use Of Lookup to join student data and course data
+
+const courseDetailWithStudentDetail= async (req,res)=>
+    {
+       const courseDetailWithStudent= await courseModel.aggregate(
+            [
+                {$lookup:{
+                    from:"studentdatas",
+                    localField:"studentId",
+                    foreignField:"_id",
+                    as:"studentDetail"
+                }}
+            ]
+        );
+        // console.log(studentWithCourseDetail());
+        res.send(courseDetailWithStudent);
+    
+    }
+   
+    
+    //Convert Age to categories
+
+    const ageByCategory= async(req,res)=>
+
+    {
+       const result=await studentModel.aggregate(
+        [
+            {
+                   $addFields:
+                   {
+                    
+                    ageCategory:
+                    {
+                    $cond:
+                    {
+                        if:{$lt:["$age",18]},
+                        then:"Minor",
+                        else:"Major"
+                    }
+                   }
+                     }  }
+        ]
+       )
+       res.send(result);
+    }
+
+    // Update API
+    const updateData = async (req, res) => {
+        try {
+            const { filter, update } = req.body; 
+    
+            if (!filter || !update) {
+                return res.status(400).json({ message: "Filter and update fields are required" });
+            }
+    
+            const updatedData = await studentModel.updateOne(filter, { $set: update });
+    
+            if (updatedData.matchedCount === 0) {
+                return res.status(404).json({ message: "No student found with the given criteria" });
+            }
+    
+            res.status(200).json({
+                message: "Student Updated Successfully",
+                data: updatedData
+            });
+        } catch (error) {
+            res.status(500).json({ message: "Internal Server Error", error: error.message });
+        }
+    };
+    
+
+    // To Get all user from database
+    const getAllUser= async(req,res)=>
+    {
+        const allUser= await studentModel.find({});
+        res.send({
+            message:"All The  Registred Student ",
+            data:allUser
+        })
+    }
+    
 
 
-export  {userRegistration,userLogin,userCountByCourse,getUserAboveAge,latestUsers,getUserByAgeGroup};
+
+
+export  {userRegistration,userLogin,userCountByCourse,getUserAboveAge,courseRegister,latestUsers,getUserByAgeGroup,studentWithCourseDetail,courseDetailWithStudentDetail,ageByCategory,updateData,getAllUser};
